@@ -36,6 +36,7 @@ import type {
   MoveSnapshot,
 } from "./game/types";
 import { campaignLevels, fallbackCampaignLevel } from "./levels/boxoban";
+import { useVoxobanSeo } from "./seo";
 
 type ViewMode = "isometric" | "topdown";
 type CubeFaceKey = "t" | "b" | "fr" | "fl" | "bl" | "br";
@@ -45,16 +46,7 @@ type LateralFaceKey = Exclude<CubeFaceKey, "t" | "b">;
 type SpriteTextureSet = Partial<Record<LocalSide | "top", string>>;
 const LEVEL_QUERY_PARAM = "l";
 
-const siteName = "Voxoban";
-const pageTitle = "Voxoban - 3D Sokoban Puzzle Game";
-const pageDescription =
-  "Play Voxoban, a browser-based 3D Sokoban-style puzzle game.";
-const logoUrl = "/voxoban-logo.png";
-const socialImagePath = "/voxoban-social.png";
-const socialImageWidth = "2874";
-const socialImageHeight = "1796";
-const socialImageAlt =
-  "Voxoban gameplay preview showing voxel crates and goal tiles on a Sokoban board.";
+const { logoUrl } = useVoxobanSeo();
 const FLOOR_TILE_TEXTURE = "/floortile.png";
 const BOX_TOP_TEXTURE = "/boxtop.png";
 const BOX_SIDE_TEXTURE = "/boxside.png";
@@ -67,55 +59,6 @@ const DEFAULT_CAMERA_STATE = {
   tilt: 0,
 };
 const CAMERA_DEFAULT_EPSILON = 0.0001;
-const route = useRoute();
-const runtimeConfig = useRuntimeConfig();
-const siteUrl = computed(() => {
-  const raw =
-    (runtimeConfig.public.siteUrl as string | undefined)?.trim() ?? "";
-  return raw ? raw.replace(/\/+$/, "") : "";
-});
-const canonicalUrl = computed(() => {
-  if (!siteUrl.value) {
-    return undefined;
-  }
-  const path = route.path === "/" ? "" : route.path;
-  return `${siteUrl.value}${path}`;
-});
-const socialImageUrl = computed(() => {
-  if (!siteUrl.value) {
-    return socialImagePath;
-  }
-  return `${siteUrl.value}${socialImagePath}`;
-});
-const jsonLd = computed(() => ({
-  "@context": "https://schema.org",
-  "@type": "VideoGame",
-  "@id": `${canonicalUrl.value ?? siteUrl.value ?? "https://voxoban.com"}#game`,
-  name: siteName,
-  description: pageDescription,
-  applicationCategory: "Game",
-  genre: "Puzzle",
-  gamePlatform: "Web Browser",
-  operatingSystem: "Any",
-  inLanguage: "en",
-  isAccessibleForFree: true,
-  image: socialImageUrl.value,
-  ...(canonicalUrl.value ? { url: canonicalUrl.value } : {}),
-  publisher: {
-    "@type": "Organization",
-    name: siteName,
-  },
-}));
-const websiteJsonLd = computed(() => ({
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "@id": `${canonicalUrl.value ?? siteUrl.value ?? "https://voxoban.com"}#website`,
-  name: siteName,
-  description: pageDescription,
-  inLanguage: "en",
-  ...(siteUrl.value ? { url: siteUrl.value } : {}),
-}));
-
 const PLAYER_HEAD_SIDE_TEXTURES: SpriteTextureSet = {
   front: "/spacedrome-character/face-front.svg",
   back: "/spacedrome-character/face-back.svg",
@@ -205,52 +148,6 @@ const BOX_FACE_TEXTURE_MAP: Partial<Record<CubeFaceKey, string>> = {
   bl: BOX_SIDE_TEXTURE,
   br: BOX_SIDE_TEXTURE,
 };
-
-useSeoMeta({
-  title: pageTitle,
-  description: pageDescription,
-  applicationName: siteName,
-  googlebot:
-    "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
-  robots:
-    "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
-  ogTitle: pageTitle,
-  ogDescription: pageDescription,
-  ogType: "website",
-  ogSiteName: siteName,
-  ogLocale: "en_US",
-  ogUrl: () => canonicalUrl.value,
-  ogImage: () => socialImageUrl.value,
-  ogImageAlt: socialImageAlt,
-  ogImageWidth: socialImageWidth,
-  ogImageHeight: socialImageHeight,
-  twitterCard: "summary_large_image",
-  twitterTitle: pageTitle,
-  twitterDescription: pageDescription,
-  twitterImage: () => socialImageUrl.value,
-  twitterImageAlt: socialImageAlt,
-});
-
-useHead(() => ({
-  link: canonicalUrl.value
-    ? [
-        { rel: "canonical", href: canonicalUrl.value },
-        { rel: "alternate", hreflang: "en", href: canonicalUrl.value },
-      ]
-    : [],
-  script: [
-    {
-      key: "voxoban-jsonld",
-      type: "application/ld+json",
-      children: JSON.stringify(jsonLd.value),
-    },
-    {
-      key: "voxoban-website-jsonld",
-      type: "application/ld+json",
-      children: JSON.stringify(websiteJsonLd.value),
-    },
-  ],
-}));
 
 const levelIndex = ref(0);
 const level = computed<CampaignLevel>(() => {
