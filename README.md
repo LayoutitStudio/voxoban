@@ -47,11 +47,3 @@ npm run pack:levels
 ```
 
 See [NOTICE.md](NOTICE.md) for Boxoban attribution and citation details.
-
-## Public Release Checklist
-
-- Keep generated Nuxt output, `node_modules`, and the full upstream Boxoban
-  mirror out of Git.
-- Run `npm run check`, `npm run generate`, and `npm run audit`.
-- Confirm `public/sitemap.xml`, `public/robots.txt`, and
-  `NUXT_PUBLIC_SITE_URL` match the deployed host.
