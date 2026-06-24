@@ -1,0 +1,35 @@
+  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect
+      x="5"
+      y="5"
+      width="90"
+      height="90"
+      fill="#A89986"
+      stroke="#333"
+      stroke-width="10"
+    />
+    <rect x="2" y="6" width="45" height="92" fill="#E2D1BD" />
+    <rect x="53" y="6" width="45" height="92" fill="#E2D1BD" />
+    <rect x="47" y="37" width="7" height="53" fill="#E2D1BD" />
+    <rect y="95" width="100" height="5" fill="black" />
+    <circle cx="50" cy="40" r="15" fill="#A89986" />
+    <circle cx="50" cy="40" r="10" fill="#E2D1BD" />
+    <circle cx="40" cy="50" r="10" fill="#E2D1BD" />
+    <rect x="44" y="81" width="16" height="17" fill="#E2D1BD" />
+    <path d="M2 70L50 60L98 70V74H2V70Z" fill="black" />
+    <path
+      d="M97.5 73.6263V96C97.5 96.8284 96.8284 97.5 96 97.5H4C3.17157 97.5 2.5 96.8284 2.5 96V73.6263C2.5 72.9158 2.99849 72.3027 3.69407 72.1578L49.6941 62.5745C49.8959 62.5324 50.1041 62.5324 50.3059 62.5745L96.3059 72.1578C97.0015 72.3027 97.5 72.9158 97.5 73.6263Z"
+      fill="black"
+      stroke="#E6E6E6"
+    />
+    <circle cx="15.5" cy="85" r="9.5" fill="#CDCDCD" stroke="#E6E6E6" />
+    <circle cx="15.5" cy="85" r="4.5" fill="#A89986" stroke="#E6E6E6" />
+    <circle cx="84.5" cy="85" r="9.5" fill="#CDCDCD" stroke="#E6E6E6" />
+    <circle cx="84.5" cy="85" r="4.5" fill="#A89986" stroke="#E6E6E6" />
+    <circle cx="50" cy="70" r="4.5" fill="#A89986" stroke="#E6E6E6" />
+    <circle cx="50" cy="70" r="2.5" fill="#CDCDCD" stroke="#E6E6E6" />
+    <circle cx="62" cy="85" r="9.5" fill="#CDCDCD" stroke="#E6E6E6" />
+    <circle cx="62" cy="85" r="4.5" fill="#A89986" stroke="#E6E6E6" />
+    <circle cx="38.5" cy="85" r="9.5" fill="#CDCDCD" stroke="#E6E6E6" />
+    <circle cx="38.5" cy="85" r="4.5" fill="#A89986" stroke="#E6E6E6" />
+  </svg>

@@ -1,0 +1,200 @@
+  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect
+      x="5"
+      y="5"
+      width="90"
+      height="90"
+      fill="#D9D9D9"
+      stroke="#333"
+      stroke-width="10"
+    />
+    <rect x="2" y="6" width="96" height="92" fill="#E2D1BD" />
+    <line x1="8" y1="90.5" x2="38" y2="90.5" stroke="#A89986" />
+    <line x1="8" y1="85.5" x2="38" y2="85.5" stroke="#A89986" />
+    <line x1="8" y1="80.5" x2="38" y2="80.5" stroke="#A89986" />
+    <line x1="62" y1="90.5" x2="92" y2="90.5" stroke="#A89986" />
+    <line x1="62" y1="85.5" x2="92" y2="85.5" stroke="#A89986" />
+    <line x1="62" y1="80.5" x2="92" y2="80.5" stroke="#A89986" />
+    <path
+      d="M16.6634 16H24.9967L16.6634 26H8.33008L16.6634 16Z"
+      fill="#DACBB8"
+    />
+    <path d="M8.3431 26H16.6764L10.3431 34H2.00977L8.3431 26Z" fill="#DACBB8" />
+    <path
+      d="M33.4134 16H41.7467L33.4134 26H25.0801L33.4134 16Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M25.0931 26H33.4264L27.0931 34H18.7598L25.0931 26Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M18.7552 34H27.0885L18.7552 44H10.4219L18.7552 34Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M10.4349 44H18.7682L12.4349 52H4.10156L10.4349 44Z"
+      fill="#DACBB8"
+    />
+    <path d="M4.08464 52H12.418L2 65V60V54.9079L4.08464 52Z" fill="#DACBB8" />
+    <path d="M2.03125 34H10.3646L2.03125 44H2L2.03125 34Z" fill="#DACBB8" />
+    <rect y="6" width="100" height="10" fill="#F4EC4F" />
+    <path d="M8.33333 6H16.6667L8.33333 16H0L8.33333 6Z" fill="#010101" />
+    <path d="M24.9993 6H33.3327L24.9993 16H16.666L24.9993 6Z" fill="#010101" />
+    <path d="M41.6673 6H50.0007L41.6673 16H33.334L41.6673 6Z" fill="#010101" />
+    <path d="M58.3333 6H66.6667L58.3333 16H50L58.3333 6Z" fill="#010101" />
+    <path d="M74.9993 6H83.3327L74.9993 16H66.666L74.9993 6Z" fill="#010101" />
+    <path d="M91.6673 6H100.001L91.6673 16H83.334L91.6673 6Z" fill="#010101" />
+    <path
+      d="M50.4134 16H58.7467L50.4134 26H42.0801L50.4134 16Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M42.0931 26H50.4264L44.0931 34H35.7598L42.0931 26Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M35.7552 34H44.0885L35.7552 44H27.4219L35.7552 34Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M27.4349 44H35.7682L29.4349 52H21.1016L27.4349 44Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M21.0853 52H29.4186L23.0853 60H14.752L21.0853 52Z"
+      fill="#DACBB8"
+    />
+    <path d="M14.8333 60H23.1667L14.8333 70H6.5L14.8333 60Z" fill="#DACBB8" />
+    <path
+      d="M66.4134 16H74.7467L66.4134 26H58.0801L66.4134 16Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M58.0931 26H66.4264L60.0931 34H51.7598L58.0931 26Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M51.7552 34H60.0885L51.7552 44H43.4219L51.7552 34Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M43.4349 44H51.7682L45.4349 52H37.1016L43.4349 44Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M37.0853 52H45.4186L39.0853 60H30.752L37.0853 52Z"
+      fill="#DACBB8"
+    />
+    <path d="M30.8333 60H39.1667L30.8333 70H22.5L30.8333 60Z" fill="#DACBB8" />
+    <path
+      d="M83.4134 16H91.7467L83.4134 26H75.0801L83.4134 16Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M75.0931 26H83.4264L77.0931 34H68.7598L75.0931 26Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M68.7552 34H77.0885L68.7552 44H60.4219L68.7552 34Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M60.4349 44H68.7682L62.4349 52H54.1016L60.4349 44Z"
+      fill="#DACBB8"
+    />
+    <path
+      d="M54.0853 52H62.4186L56.0853 60H47.752L54.0853 52Z"
+      fill="#DACBB8"
+    />
+    <path d="M47.8333 60H56.1667L47.8333 70H39.5L47.8333 60Z" fill="#DACBB8" />
+    <rect x="2" y="70" width="96" height="6" fill="black" />
+    <rect y="95" width="100" height="5" fill="black" />
+    <rect x="47" y="76" width="6" height="19" fill="#80715E" />
+    <rect
+      x="53.5"
+      y="73.5"
+      width="44"
+      height="24"
+      rx="1.5"
+      fill="black"
+      stroke="#E6E6E6"
+    />
+    <line
+      x1="59"
+      y1="82.25"
+      x2="92"
+      y2="82.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line x1="59" y1="76.5" x2="92" y2="76.5" stroke="#CDCDCD" />
+    <line
+      x1="59"
+      y1="79.25"
+      x2="92"
+      y2="79.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line
+      x1="59"
+      y1="90.25"
+      x2="92"
+      y2="90.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line x1="59" y1="93.5" x2="92" y2="93.5" stroke="#CDCDCD" />
+    <line
+      x1="59"
+      y1="87.25"
+      x2="92"
+      y2="87.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <rect
+      x="2.5"
+      y="73.5"
+      width="44"
+      height="24"
+      rx="1.5"
+      fill="black"
+      stroke="#E6E6E6"
+    />
+    <line
+      x1="8"
+      y1="82.25"
+      x2="41"
+      y2="82.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line x1="8" y1="76.5" x2="41" y2="76.5" stroke="#CDCDCD" />
+    <line
+      x1="8"
+      y1="79.25"
+      x2="41"
+      y2="79.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line
+      x1="8"
+      y1="90.25"
+      x2="41"
+      y2="90.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+    <line x1="8" y1="93.5" x2="41" y2="93.5" stroke="#CDCDCD" />
+    <line
+      x1="8"
+      y1="87.25"
+      x2="41"
+      y2="87.25"
+      stroke="#CDCDCD"
+      stroke-width="1.5"
+    />
+  </svg>
