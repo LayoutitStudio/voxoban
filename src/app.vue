@@ -1,962 +1,141 @@
 <script setup lang="ts">
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from "vue";
-import {
-  createCamera,
-  renderScene,
-  type HeadlessCameraHandle,
-  type HeadlessRenderHandle,
-  type SceneState,
-} from "@layoutit/voxcss";
-import {
-  buildDeadBoxSquares,
-  buildGoalReachabilityByGoal,
-  isLostState,
-} from "./game/deadlocks";
-import {
-  MOVE_DELTAS_BY_DIRECTION,
-  clamp,
-  fromKey,
-  toKey,
-} from "./game/coords";
-import {
-  canSingleBoxReachAnyGoalFromState,
-  tryMoveOnBoard,
-} from "./game/rules";
-import type {
-  CampaignLevel,
-  Coord,
-  Facing,
-  MoveDirection,
-  MoveSnapshot,
-} from "./game/types";
-import { campaignLevels, fallbackCampaignLevel } from "./levels/boxoban";
-import { createActorTextureScheduler } from "./actor-textures";
-import { useVoxobanSeo } from "./seo";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-type ViewMode = "isometric" | "topdown";
-const LEVEL_QUERY_PARAM = "l";
+import AppCameraDock from "./AppCameraDock.vue";
+import AppLevelClearedOverlay from "./AppLevelClearedOverlay.vue";
+import AppMobileDpad from "./AppMobileDpad.vue";
+import AppSidebar from "./AppSidebar.vue";
+import { createActorTextureScheduler } from "./actor-textures";
+import { buildSceneVoxels } from "./scene-voxels";
+import { createSceneRuntime } from "./scene-runtime";
+import { useVoxobanSeo } from "./seo";
+import { useCameraControls } from "./use-camera-controls";
+import { useLevelSession } from "./use-level-session";
+import { useLevelTimer } from "./use-level-timer";
+import { useWinSequence } from "./use-win-sequence";
 
 const { logoUrl } = useVoxobanSeo();
-const FLOOR_TILE_TEXTURE = "/floortile.png";
-const DEFAULT_CAMERA_STATE = {
-  viewMode: "isometric" as ViewMode,
-  zoom: 1.55,
-  rotX: 50,
-  rotY: 60,
-  pan: 0,
-  tilt: 0,
-};
-const CAMERA_DEFAULT_EPSILON = 0.0001;
-
-const levelIndex = ref(0);
-const level = computed<CampaignLevel>(() => {
-  return (
-    campaignLevels[levelIndex.value] ??
-    campaignLevels[0] ??
-    fallbackCampaignLevel
-  );
-});
-const totalLevels = computed(() => campaignLevels.length);
-const levelNumber = computed(() => levelIndex.value + 1);
-const hasPreviousLevel = computed(() => levelIndex.value > 0);
-const hasNextLevel = computed(() => levelIndex.value < totalLevels.value - 1);
-const goalCount = computed(() => level.value.goals.size);
-
-const player = ref<Coord>({ ...level.value.startPlayer });
-const facing = ref<Facing>("south");
-const boxes = ref<Set<string>>(new Set(level.value.startBoxes));
-const steps = ref(0);
-const elapsedSeconds = ref(0);
-const moveHistory = ref<MoveSnapshot[]>([]);
-const redoHistory = ref<MoveSnapshot[]>([]);
-const forcedLoss = ref(false);
-
 const sceneRoot = ref<HTMLElement | null>(null);
+
+let isLevelComplete = (): boolean => false;
+const levelTimer = useLevelTimer({
+  isLevelComplete: () => isLevelComplete(),
+});
+const levelSession = useLevelSession({
+  elapsedSeconds: levelTimer.elapsedSeconds,
+  startLevelTimer: levelTimer.startLevelTimer,
+  resumeLevelTimer: levelTimer.resumeLevelTimer,
+});
+isLevelComplete = () => levelSession.hasWonLevel.value;
+
+const cameraControls = useCameraControls({
+  level: levelSession.level,
+  sceneRoot,
+  isInteractionLocked: () => levelSession.hasWonLevel.value,
+});
+const winSequence = useWinSequence({
+  rotY: cameraControls.rotY,
+  hasWonLevel: () => levelSession.hasWonLevel.value,
+  clearSceneDrag: () => cameraControls.clearSceneDrag(),
+});
+
+levelSession.setLevelChangedHandler(cameraControls.applyMobileZoomPreset);
+levelSession.setClearWinSequenceHandler(winSequence.clearWinSequence);
+
 const actorTextureScheduler = createActorTextureScheduler(() => ({
   root: sceneRoot.value,
-  level: level.value,
-  boxes: boxes.value,
-  player: player.value,
-  facing: facing.value,
+  level: levelSession.level.value,
+  boxes: levelSession.boxes.value,
+  player: levelSession.player.value,
+  facing: levelSession.facing.value,
 }));
 
-const zoom = ref(DEFAULT_CAMERA_STATE.zoom);
-const rotX = ref(DEFAULT_CAMERA_STATE.rotX);
-const rotY = ref(DEFAULT_CAMERA_STATE.rotY);
-const pan = ref(DEFAULT_CAMERA_STATE.pan);
-const tilt = ref(DEFAULT_CAMERA_STATE.tilt);
-const zoomMin = 0.35;
-const zoomMax = 2.4;
-const rotXMin = 0;
-const rotXMax = 89;
-const rotateSpeed = 0.22;
-const zoomWheelSpeed = 0.003;
-const winBoardRotationDegrees = 360;
-const winBoardRotationDurationMs = 1240;
-const isometricView = {
-  rotX: DEFAULT_CAMERA_STATE.rotX,
-  rotY: DEFAULT_CAMERA_STATE.rotY,
-};
-const topDownView = { rotX: 0, rotY: 90 };
-const viewMode = ref<ViewMode>(DEFAULT_CAMERA_STATE.viewMode);
-const mobileViewportMaxWidth = 640;
-const mobileZoomReferenceTiles = 7.5;
-const mobileZoomMinPreset = 0.42;
-
-const sceneDragState = ref<{
-  pointerId: number;
-  lastX: number;
-  lastY: number;
-} | null>(null);
-const isSceneDragging = computed(() => sceneDragState.value !== null);
-
-let cameraHandle: HeadlessCameraHandle | null = null;
-let renderHandle: HeadlessRenderHandle | null = null;
-let cameraElement: HTMLElement | null = null;
-let levelTimerHandle: number | null = null;
-let levelStartedAtMs = 0;
-let pausedLevelTimerForVisibility = false;
-let winRotationRafId: number | null = null;
-const prefersReducedMotion = ref(false);
-let reducedMotionMediaQuery: MediaQueryList | null = null;
-
-const filledGoals = computed(() => {
-  let count = 0;
-  for (const goalKey of level.value.goals) {
-    if (boxes.value.has(goalKey)) {
-      count += 1;
-    }
-  }
-  return count;
-});
-
-const hasWonLevel = computed(() => filledGoals.value === goalCount.value);
-const isWinSequenceActive = ref(false);
-const showLevelClearedOverlay = ref(false);
-const canUndoLastMove = computed(() => moveHistory.value.length > 0);
-const canRedoLastMove = computed(() => redoHistory.value.length > 0);
-const goalReachabilityByGoal = computed(() =>
-  buildGoalReachabilityByGoal(level.value)
+const voxels = computed(() =>
+  buildSceneVoxels({
+    level: levelSession.level.value,
+    boxes: levelSession.boxes.value,
+    player: levelSession.player.value,
+  })
 );
-const deadBoxSquares = computed(() =>
-  buildDeadBoxSquares(level.value, goalReachabilityByGoal.value)
-);
-const isLost = computed(() =>
-  isLostState(
-    level.value,
-    boxes.value,
-    player.value,
-    forcedLoss.value,
-    hasWonLevel.value,
-    deadBoxSquares.value,
-    goalReachabilityByGoal.value
-  )
-);
-const formattedElapsedTime = computed(() => {
-  const total = Math.max(0, elapsedSeconds.value);
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(
-    2,
-    "0"
-  )}`;
-});
-const isCameraAtDefault = computed(() => {
-  const isClose = (actual: number, expected: number) =>
-    Math.abs(actual - expected) <= CAMERA_DEFAULT_EPSILON;
-  const isDefaultViewPreset =
-    (viewMode.value === "isometric" &&
-      isClose(rotX.value, isometricView.rotX) &&
-      isClose(rotY.value, isometricView.rotY)) ||
-    (viewMode.value === "topdown" &&
-      isClose(rotX.value, topDownView.rotX) &&
-      isClose(rotY.value, topDownView.rotY));
-  return (
-    isDefaultViewPreset &&
-    isClose(zoom.value, getDefaultCameraZoom()) &&
-    isClose(pan.value, DEFAULT_CAMERA_STATE.pan) &&
-    isClose(tilt.value, DEFAULT_CAMERA_STATE.tilt)
-  );
+
+const sceneRuntime = createSceneRuntime({
+  sceneRoot,
+  voxels,
+  camera: {
+    zoom: cameraControls.zoom,
+    pan: cameraControls.pan,
+    tilt: cameraControls.tilt,
+    rotX: cameraControls.rotX,
+    rotY: cameraControls.rotY,
+  },
+  actorTextureScheduler,
 });
 
-function clampZoom(value: number): number {
-  return Math.min(zoomMax, Math.max(zoomMin, value));
-}
-
-function setZoom(value: number): void {
-  zoom.value = Math.round(clampZoom(value) * 1000) / 1000;
-}
-
-function shouldUseMobileZoomPreset(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return window.innerWidth <= mobileViewportMaxWidth;
-}
-
-function computeMobileFitZoom(): number {
-  const longestSide = Math.max(level.value.width, level.value.height, 1);
-  const fitZoom = mobileZoomReferenceTiles / longestSide;
-  return clampZoom(Math.max(mobileZoomMinPreset, fitZoom));
-}
-
-function applyMobileZoomPreset(): void {
-  if (!shouldUseMobileZoomPreset()) {
-    return;
-  }
-  setZoom(computeMobileFitZoom());
-}
-
-function getDefaultCameraZoom(): number {
-  const defaultZoom = shouldUseMobileZoomPreset()
-    ? computeMobileFitZoom()
-    : DEFAULT_CAMERA_STATE.zoom;
-  return Math.round(defaultZoom * 1000) / 1000;
-}
-
-function updateElapsedSeconds(): void {
-  if (levelStartedAtMs <= 0) {
-    elapsedSeconds.value = 0;
-    return;
-  }
-
-  elapsedSeconds.value = Math.max(
-    0,
-    Math.floor((Date.now() - levelStartedAtMs) / 1000)
-  );
-}
-
-function cancelWinSequenceAnimation(): void {
-  if (winRotationRafId === null) {
-    return;
-  }
-  if (typeof window !== "undefined") {
-    window.cancelAnimationFrame(winRotationRafId);
-  }
-  winRotationRafId = null;
-}
-
-function clearWinSequence(): void {
-  cancelWinSequenceAnimation();
-  isWinSequenceActive.value = false;
-  showLevelClearedOverlay.value = false;
-}
-
-function onReducedMotionPreferenceChange(event: MediaQueryListEvent): void {
-  prefersReducedMotion.value = event.matches;
-}
-
-function startWinSequence(): void {
-  cancelWinSequenceAnimation();
-  clearSceneDrag();
-  isWinSequenceActive.value = true;
-  showLevelClearedOverlay.value = false;
-  const initialRotY = rotY.value;
-
-  if (prefersReducedMotion.value) {
-    isWinSequenceActive.value = false;
-    showLevelClearedOverlay.value = true;
-    return;
-  }
-
-  if (typeof window === "undefined") {
-    rotY.value = initialRotY + winBoardRotationDegrees;
-    isWinSequenceActive.value = false;
-    showLevelClearedOverlay.value = true;
-    return;
-  }
-
-  let startedAtMs = 0;
-  const animate = (timestamp: number): void => {
-    if (!hasWonLevel.value) {
-      clearWinSequence();
-      return;
-    }
-
-    if (startedAtMs === 0) {
-      startedAtMs = timestamp;
-    }
-
-    const elapsedMs = timestamp - startedAtMs;
-    const progress = Math.min(1, elapsedMs / winBoardRotationDurationMs);
-    const easedProgress = 1 - Math.pow(1 - progress, 3);
-    rotY.value = initialRotY + winBoardRotationDegrees * easedProgress;
-
-    if (progress < 1) {
-      winRotationRafId = window.requestAnimationFrame(animate);
-      return;
-    }
-
-    winRotationRafId = null;
-    isWinSequenceActive.value = false;
-    showLevelClearedOverlay.value = true;
-  };
-
-  winRotationRafId = window.requestAnimationFrame(animate);
-}
-
-function continueAfterWin(): void {
-  if (hasNextLevel.value) {
-    nextLevel();
-    return;
-  }
-  newGame();
-}
-
-function resetCamera(): void {
-  viewMode.value = DEFAULT_CAMERA_STATE.viewMode;
-  setZoom(getDefaultCameraZoom());
-  rotX.value = clamp(DEFAULT_CAMERA_STATE.rotX, rotXMin, rotXMax);
-  rotY.value = DEFAULT_CAMERA_STATE.rotY;
-  pan.value = DEFAULT_CAMERA_STATE.pan;
-  tilt.value = DEFAULT_CAMERA_STATE.tilt;
-}
-
-function stopLevelTimer(syncElapsed = false): void {
-  if (syncElapsed) {
-    updateElapsedSeconds();
-  }
-
-  if (typeof window !== "undefined" && levelTimerHandle !== null) {
-    window.clearInterval(levelTimerHandle);
-  }
-  levelTimerHandle = null;
-}
-
-function startLevelTimer(): void {
-  stopLevelTimer(false);
-  pausedLevelTimerForVisibility = false;
-  levelStartedAtMs = Date.now();
-  elapsedSeconds.value = 0;
-
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  levelTimerHandle = window.setInterval(() => {
-    updateElapsedSeconds();
-  }, 1000);
-}
-
-function resumeLevelTimer(): void {
-  stopLevelTimer(false);
-  pausedLevelTimerForVisibility = false;
-  levelStartedAtMs = Date.now() - elapsedSeconds.value * 1000;
-
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  levelTimerHandle = window.setInterval(() => {
-    updateElapsedSeconds();
-  }, 1000);
-}
-
-function onDocumentVisibilityChange(): void {
-  if (typeof document === "undefined") {
-    return;
-  }
-
-  if (document.visibilityState === "hidden") {
-    if (levelTimerHandle === null) {
-      return;
-    }
-
-    stopLevelTimer(true);
-    pausedLevelTimerForVisibility = true;
-    return;
-  }
-
-  if (!pausedLevelTimerForVisibility) {
-    return;
-  }
-
-  pausedLevelTimerForVisibility = false;
-  if (hasWonLevel.value) {
-    return;
-  }
-
-  resumeLevelTimer();
-}
-
-function toSimpleLevelId(levelToEncode: CampaignLevel): string {
-  return levelToEncode.sourceIndex.toString(36);
-}
-
-function parseSimpleLevelId(value: string): number | null {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[0-9a-z]+$/.test(normalized)) {
-    return null;
-  }
-
-  const parsed = Number.parseInt(normalized, 36);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function readLevelIndexFromUrl(): number | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const url = new URL(window.location.href);
-  const levelParam = url.searchParams.get(LEVEL_QUERY_PARAM);
-  if (!levelParam) {
-    return null;
-  }
-
-  const sourceIndex = parseSimpleLevelId(levelParam);
-  if (sourceIndex === null) {
-    return null;
-  }
-
-  const matchedIndex = campaignLevels.findIndex(
-    (candidate) => candidate.sourceIndex === sourceIndex
-  );
-  return matchedIndex >= 0 ? matchedIndex : null;
-}
-
-function syncLevelQueryParam(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const url = new URL(window.location.href);
-  url.searchParams.set(LEVEL_QUERY_PARAM, toSimpleLevelId(level.value));
-  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState(window.history.state ?? null, "", nextUrl);
-}
-
-function applyLevelFromUrl(): void {
-  const levelFromUrl = readLevelIndexFromUrl();
-  if (levelFromUrl === null) {
-    return;
-  }
-  setLevel(levelFromUrl);
-}
-
-function onPopState(): void {
-  applyLevelFromUrl();
-}
-
-function setLevel(nextLevelIndex: number): void {
-  const boundedLevelIndex = clamp(nextLevelIndex, 0, totalLevels.value - 1);
-  if (boundedLevelIndex === levelIndex.value) {
-    return;
-  }
-
-  levelIndex.value = boundedLevelIndex;
-  applyMobileZoomPreset();
-  resetLevel();
-  syncLevelQueryParam();
-}
-
-function previousLevel(): void {
-  setLevel(levelIndex.value - 1);
-}
-
-function nextLevel(): void {
-  setLevel(levelIndex.value + 1);
-}
-
-function newGame(): void {
-  if (levelIndex.value !== 0) {
-    setLevel(0);
-    return;
-  }
-
-  resetLevel();
-  syncLevelQueryParam();
-}
-
-type Voxel = SceneState["voxels"][number];
-type PlayerRenderVoxel = Voxel & {
-  noCull?: boolean;
-  renderPass?: number;
-};
-
-function createUnitCube(
-  x: number,
-  y: number,
-  z: number,
-  props: Omit<Partial<Voxel>, "x" | "y" | "z" | "x2" | "y2"> = {}
-): Voxel {
-  const gridX = x + 1;
-  const gridY = y + 1;
-  const gridArea = `${gridX} / ${gridY} / ${gridX + 1} / ${gridY + 1}`;
-
-  return {
-    x: gridX,
-    y: gridY,
-    z,
-    x2: gridX + 1,
-    y2: gridY + 1,
-    shape: "cube",
-    ...props,
-    data: {
-      ...(props.data ?? {}),
-      gridArea,
-      footprint: "1x1",
-    },
-  };
-}
-
-function resetLevel(): void {
-  clearWinSequence();
-  player.value = { ...level.value.startPlayer };
-  facing.value = "south";
-  boxes.value = new Set(level.value.startBoxes);
-  steps.value = 0;
-  forcedLoss.value = false;
-  moveHistory.value = [];
-  redoHistory.value = [];
-  startLevelTimer();
-}
-
-function createMoveSnapshot(): MoveSnapshot {
-  return {
-    player: { ...player.value },
-    facing: facing.value,
-    boxes: new Set(boxes.value),
-    steps: steps.value,
-    elapsedSeconds: elapsedSeconds.value,
-    forcedLoss: forcedLoss.value,
-  };
-}
-
-function applyMoveSnapshot(snapshot: MoveSnapshot): void {
-  player.value = { ...snapshot.player };
-  facing.value = snapshot.facing;
-  boxes.value = new Set(snapshot.boxes);
-  steps.value = snapshot.steps;
-  elapsedSeconds.value = snapshot.elapsedSeconds;
-  forcedLoss.value = snapshot.forcedLoss;
-}
-
-function recordMoveSnapshot(): void {
-  moveHistory.value.push(createMoveSnapshot());
-  redoHistory.value = [];
-}
-
-function undoLastMove(): void {
-  const snapshot = moveHistory.value.pop();
-  if (!snapshot) {
-    return;
-  }
-
-  redoHistory.value.push(createMoveSnapshot());
-  applyMoveSnapshot(snapshot);
-  resumeLevelTimer();
-}
-
-function redoLastMove(): void {
-  const snapshot = redoHistory.value.pop();
-  if (!snapshot) {
-    return;
-  }
-
-  moveHistory.value.push(createMoveSnapshot());
-  applyMoveSnapshot(snapshot);
-  resumeLevelTimer();
-}
-
-function tryMove(dx: number, dy: number): void {
-  if (hasWonLevel.value) {
-    return;
-  }
-
-  const moveResult = tryMoveOnBoard(
-    level.value,
-    player.value,
-    boxes.value,
-    dx,
-    dy
-  );
-  if (!moveResult.moved) {
-    return;
-  }
-
-  recordMoveSnapshot();
-  boxes.value = moveResult.boxes;
-  player.value = moveResult.player;
-  facing.value = moveResult.facing;
-  steps.value += 1;
-
-  if (
-    moveResult.pushedBoxCoord &&
-    moveResult.pushedBoxKey &&
-    !level.value.goals.has(moveResult.pushedBoxKey)
-  ) {
-    if (deadBoxSquares.value.has(moveResult.pushedBoxKey)) {
-      forcedLoss.value = true;
-    } else if (
-      !canSingleBoxReachAnyGoalFromState(
-        level.value,
-        moveResult.pushedBoxCoord,
-        moveResult.player
-      )
-    ) {
-      forcedLoss.value = true;
-    }
-  }
-}
-
-function moveByDirection(direction: MoveDirection): void {
-  const delta = MOVE_DELTAS_BY_DIRECTION[direction];
-  if (!delta) {
-    return;
-  }
-  tryMove(delta.dx, delta.dy);
-}
-
-function onKeyDown(event: KeyboardEvent): void {
-  switch (event.key) {
-    case "ArrowUp":
-    case "w":
-    case "W":
-      event.preventDefault();
-      moveByDirection("up");
-      return;
-    case "ArrowDown":
-    case "s":
-    case "S":
-      event.preventDefault();
-      moveByDirection("down");
-      return;
-    case "ArrowLeft":
-    case "a":
-    case "A":
-      event.preventDefault();
-      moveByDirection("left");
-      return;
-    case "ArrowRight":
-    case "d":
-    case "D":
-      event.preventDefault();
-      moveByDirection("right");
-      return;
-    case "r":
-    case "R":
-      event.preventDefault();
-      resetLevel();
-      return;
-    case "u":
-    case "U":
-      event.preventDefault();
-      undoLastMove();
-      return;
-    case "e":
-    case "E":
-      event.preventDefault();
-      redoLastMove();
-      return;
-    case "p":
-    case "P":
-      event.preventDefault();
-      previousLevel();
-      return;
-    case "n":
-    case "N":
-      event.preventDefault();
-      newGame();
-      return;
-    case "l":
-    case "L":
-      event.preventDefault();
-      nextLevel();
-      return;
-    default:
-      return;
-  }
-}
-
-function onZoomSliderInput(event: Event): void {
-  const input = event.target as HTMLInputElement | null;
-  if (!input) {
-    return;
-  }
-  const value = Number(input.value);
-  if (!Number.isFinite(value)) {
-    return;
-  }
-  setZoom(value);
-}
-
-function setView(mode: ViewMode): void {
-  viewMode.value = mode;
-  const preset = mode === "topdown" ? topDownView : isometricView;
-  rotX.value = clamp(preset.rotX, rotXMin, rotXMax);
-  rotY.value = preset.rotY;
-  applyMobileZoomPreset();
-}
-
-function normalizeWheelDeltaToPixels(event: WheelEvent): number {
-  if (event.deltaMode === 1) {
-    return event.deltaY * 16;
-  }
-  if (event.deltaMode === 2) {
-    return event.deltaY * window.innerHeight;
-  }
-  return event.deltaY;
-}
-
-function onSceneWheel(event: WheelEvent): void {
-  if (hasWonLevel.value) {
-    return;
-  }
-
-  const deltaInPixels = normalizeWheelDeltaToPixels(event);
-  if (!Number.isFinite(deltaInPixels) || deltaInPixels === 0) {
-    return;
-  }
-
-  event.preventDefault();
-  setZoom(zoom.value - deltaInPixels * zoomWheelSpeed);
-}
-
-function isCubeTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(".voxcss-cube") !== null;
-}
-
-function onScenePointerDown(event: PointerEvent): void {
-  if (hasWonLevel.value) {
-    return;
-  }
-
-  if (event.button !== 0) {
-    return;
-  }
-
-  if (isCubeTarget(event.target)) {
-    return;
-  }
-
-  sceneDragState.value = {
-    pointerId: event.pointerId,
-    lastX: event.clientX,
-    lastY: event.clientY,
-  };
-
-  try {
-    sceneRoot.value?.setPointerCapture(event.pointerId);
-  } catch {
-    // Ignore capture failures.
-  }
-
-  event.preventDefault();
-}
-
-function onScenePointerMove(event: PointerEvent): void {
-  if (hasWonLevel.value) {
-    clearSceneDrag(event.pointerId);
-    return;
-  }
-
-  const drag = sceneDragState.value;
-  if (!drag || drag.pointerId !== event.pointerId) {
-    return;
-  }
-
-  const deltaX = event.clientX - drag.lastX;
-  const deltaY = event.clientY - drag.lastY;
-
-  if (deltaX !== 0 || deltaY !== 0) {
-    rotY.value -= deltaX * rotateSpeed;
-    rotX.value = clamp(rotX.value - deltaY * rotateSpeed, rotXMin, rotXMax);
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-  }
-
-  event.preventDefault();
-}
-
-function clearSceneDrag(pointerId?: number): void {
-  const drag = sceneDragState.value;
-  if (!drag) {
-    return;
-  }
-  if (pointerId !== undefined && drag.pointerId !== pointerId) {
-    return;
-  }
-
-  try {
-    sceneRoot.value?.releasePointerCapture(drag.pointerId);
-  } catch {
-    // Ignore release failures.
-  }
-
-  sceneDragState.value = null;
-}
-
-function onScenePointerUp(event: PointerEvent): void {
-  clearSceneDrag(event.pointerId);
-}
-
-function onScenePointerCancel(event: PointerEvent): void {
-  clearSceneDrag(event.pointerId);
-}
-
-const voxels = computed<SceneState["voxels"]>(() => {
-  const nextVoxels: SceneState["voxels"] = [];
-
-  for (let y = 0; y < level.value.height; y += 1) {
-    for (let x = 0; x < level.value.width; x += 1) {
-      const coord = { x, y };
-      const key = toKey(coord);
-
-      if (level.value.goals.has(key)) {
-        nextVoxels.push(
-          createUnitCube(x, y, 0, {
-            color: "#9fca86",
-          })
-        );
-      } else {
-        nextVoxels.push(
-          createUnitCube(x, y, 0, {
-            color: "#d8d2c7",
-            texture: FLOOR_TILE_TEXTURE,
-          })
-        );
-      }
-
-      if (level.value.walls.has(key)) {
-        nextVoxels.push(createUnitCube(x, y, 1, { color: "#737f8b" }));
-      }
-    }
-  }
-
-  for (const boxKey of boxes.value) {
-    const boxCoord = fromKey(boxKey);
-    nextVoxels.push(
-      createUnitCube(boxCoord.x, boxCoord.y, 1, {
-        color: "#b77d44",
-      })
-    );
-  }
-
-  const playerBodyCube = createUnitCube(player.value.x, player.value.y, 1, {
-    color: "#d0c3b2",
-  }) as PlayerRenderVoxel;
-  playerBodyCube.noCull = true;
-  playerBodyCube.renderPass = 100;
-  nextVoxels.push(playerBodyCube);
-
-  const playerHeadCube = createUnitCube(player.value.x, player.value.y, 2, {
-    color: "#d9d9d9",
-  }) as PlayerRenderVoxel;
-  playerHeadCube.noCull = true;
-  playerHeadCube.renderPass = 100;
-  nextVoxels.push(playerHeadCube);
-
-  return nextVoxels;
-});
-
-function buildSceneState(nextVoxels: SceneState["voxels"]): SceneState {
-  return {
-    voxels: nextVoxels,
-    projection: "dimetric",
-    showFloor: false,
-    showWalls: false,
-    mergeVoxels: false,
-  };
-}
-
-function syncCamera(): void {
-  if (!cameraHandle) {
-    return;
-  }
-
-  const nextCameraState = {
-    zoom: zoom.value,
-    pan: pan.value,
-    tilt: tilt.value,
-    rotX: rotX.value,
-    rotY: rotY.value,
-    interactive: false,
-    animate: false,
-    perspective: 8000,
-  };
-
-  cameraHandle.update(nextCameraState);
-
-  actorTextureScheduler.schedule();
-}
-
-function clearStaleSceneCameras(root: HTMLElement | null): void {
-  if (!root) {
-    return;
-  }
-
-  const staleCameras = Array.from(
-    root.querySelectorAll<HTMLElement>(".voxcss-camera")
-  );
-  for (const node of staleCameras) {
-    node.remove();
-  }
-}
-
-function destroyScene(): void {
-  if (renderHandle) {
-    renderHandle.destroy();
-    renderHandle = null;
-    cameraHandle = null;
-  } else if (cameraHandle) {
-    cameraHandle.destroy();
-    cameraHandle = null;
-  }
-
-  if (cameraElement?.parentElement) {
-    cameraElement.parentElement.removeChild(cameraElement);
-  }
-  cameraElement = null;
-
-  clearStaleSceneCameras(sceneRoot.value);
-}
-
-function mountScene(): void {
-  const root = sceneRoot.value;
-  if (!root) {
-    return;
-  }
-
-  destroyScene();
-  const doc = root.ownerDocument ?? document;
-  cameraElement = doc.createElement("div");
-
-  cameraHandle = createCamera({
-    element: cameraElement,
-    zoom: zoom.value,
-    pan: pan.value,
-    tilt: tilt.value,
-    rotX: rotX.value,
-    rotY: rotY.value,
-    interactive: false,
-    animate: false,
-    perspective: 8000,
-  });
-
-  renderHandle = renderScene({
-    element: root,
-    camera: cameraHandle,
-    scene: buildSceneState(voxels.value),
-  });
-
-  actorTextureScheduler.schedule();
-}
+const {
+  totalLevels,
+  levelNumber,
+  hasNextLevel,
+  facing,
+  steps,
+  hasWonLevel,
+  canUndoLastMove,
+  canRedoLastMove,
+  isLost,
+  resetLevel,
+  newGame,
+  continueAfterWin,
+  undoLastMove,
+  redoLastMove,
+  moveByDirection,
+  applyLevelFromUrl,
+  syncLevelQueryParam,
+  onPopState,
+  onKeyDown,
+} = levelSession;
+
+const {
+  formattedElapsedTime,
+  ensureLevelTimerStarted,
+  stopLevelTimer,
+  onDocumentVisibilityChange,
+} = levelTimer;
+
+const {
+  zoom,
+  rotX,
+  rotY,
+  pan,
+  tilt,
+  zoomMin,
+  zoomMax,
+  viewMode,
+  isSceneDragging,
+  isCameraAtDefault,
+  applyMobileZoomPreset,
+  resetCamera,
+  setView,
+  onZoomSliderInput,
+  onSceneWheel,
+  onScenePointerDown,
+  onScenePointerMove,
+  onScenePointerUp,
+  onScenePointerCancel,
+  clearSceneDrag,
+} = cameraControls;
+
+const {
+  isWinSequenceActive,
+  showLevelClearedOverlay,
+  startWinSequence,
+  clearWinSequence,
+  mountReducedMotionPreference,
+  destroyWinSequence,
+} = winSequence;
 
 watch(
   [zoom, pan, tilt, rotX, rotY],
   () => {
-    syncCamera();
+    sceneRuntime.syncCamera();
   },
   { flush: "post" }
 );
@@ -964,8 +143,8 @@ watch(
 watch(
   voxels,
   () => {
-    mountScene();
-    syncCamera();
+    sceneRuntime.mountScene();
+    sceneRuntime.syncCamera();
   },
   { flush: "post" }
 );
@@ -984,35 +163,14 @@ watch(
   { flush: "post" }
 );
 
-watch(prefersReducedMotion, (reducedMotion) => {
-  if (!reducedMotion || !hasWonLevel.value || !isWinSequenceActive.value) {
-    return;
-  }
-  cancelWinSequenceAnimation();
-  isWinSequenceActive.value = false;
-  showLevelClearedOverlay.value = true;
-});
-
 onMounted(() => {
-  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-    reducedMotionMediaQuery = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    );
-    prefersReducedMotion.value = reducedMotionMediaQuery.matches;
-    reducedMotionMediaQuery.addEventListener(
-      "change",
-      onReducedMotionPreferenceChange
-    );
-  }
-
+  mountReducedMotionPreference();
   applyLevelFromUrl();
   applyMobileZoomPreset();
-  if (levelTimerHandle === null) {
-    startLevelTimer();
-  }
+  ensureLevelTimerStarted();
   syncLevelQueryParam();
-  mountScene();
-  syncCamera();
+  sceneRuntime.mountScene();
+  sceneRuntime.syncCamera();
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onDocumentVisibilityChange);
@@ -1020,19 +178,14 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  clearWinSequence();
+  destroyWinSequence();
   clearSceneDrag();
   actorTextureScheduler.cancel();
   stopLevelTimer(false);
-  reducedMotionMediaQuery?.removeEventListener(
-    "change",
-    onReducedMotionPreferenceChange
-  );
-  reducedMotionMediaQuery = null;
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onDocumentVisibilityChange);
-  destroyScene();
+  sceneRuntime.destroyScene();
 });
 </script>
 
@@ -1059,177 +212,41 @@ onBeforeUnmount(() => {
       @wheel.capture="onSceneWheel"
     />
 
-    <header class="sidebar">
-      <div class="brand">
-        <h1 class="sr-only">Voxoban</h1>
-        <div class="brand-mark">
-          <img class="logo" :src="logoUrl" alt="Voxoban" />
-          <span class="logo-version">v0.1</span>
-        </div>
-      </div>
+    <AppSidebar
+      :logo-url="logoUrl"
+      :level-number="levelNumber"
+      :total-levels="totalLevels"
+      :formatted-elapsed-time="formattedElapsedTime"
+      :steps="steps"
+      :is-lost="isLost"
+      :has-won-level="hasWonLevel"
+      :can-undo-last-move="canUndoLastMove"
+      :can-redo-last-move="canRedoLastMove"
+      @new-game="newGame"
+      @reset-level="resetLevel"
+      @undo="undoLastMove"
+      @redo="redoLastMove"
+    />
 
-      <div class="controls">
-        <button type="button" class="chip chip--button" @click="newGame">
-          <span class="chip-button-label"
-            ><span class="chip-shortcut">N</span>ew Game</span
-          >
-          <span class="chip-button-suit" aria-hidden="true">&hearts;</span>
-        </button>
-        <button type="button" class="chip chip--button" @click="resetLevel">
-          <span class="chip-button-label"
-            ><span class="chip-shortcut">R</span>estart</span
-          >
-        </button>
-        <div class="control-row">
-          <button
-            type="button"
-            class="chip chip--button"
-            :disabled="!canUndoLastMove"
-            @click="undoLastMove"
-          >
-            <span class="chip-button-label"
-              ><span class="chip-shortcut">U</span>ndo</span
-            >
-          </button>
-          <span class="chip-divider" aria-hidden="true">/</span>
-          <button
-            type="button"
-            class="chip chip--button"
-            :disabled="!canRedoLastMove"
-            @click="redoLastMove"
-          >
-            <span class="chip-button-label"
-              >R<span class="chip-shortcut">e</span>do</span
-            >
-          </button>
-        </div>
+    <AppCameraDock
+      :is-camera-at-default="isCameraAtDefault"
+      :has-won-level="hasWonLevel"
+      :view-mode="viewMode"
+      :zoom="zoom"
+      :zoom-min="zoomMin"
+      :zoom-max="zoomMax"
+      @reset-camera="resetCamera"
+      @set-view="setView"
+      @zoom-input="onZoomSliderInput"
+    />
 
-        <article class="chip chip--stat">
-          <strong>Level:</strong>
-          <span class="chip-value">{{ levelNumber }}/{{ totalLevels }}</span>
-        </article>
-        <article class="chip chip--timer">
-          <strong>Time:</strong>
-          <span class="chip-value">{{ formattedElapsedTime }}</span>
-        </article>
-        <article class="chip chip--stat">
-          <strong>Moves:</strong>
-          <span class="chip-value">{{ steps }}</span>
-        </article>
-        <article v-if="isLost && !hasWonLevel" class="chip chip--status-loss">
-          <strong>Likely deadlocked!</strong>
-        </article>
-      </div>
-    </header>
-
-    <div class="zoom-dock">
-      <div v-if="!isCameraAtDefault && !hasWonLevel" class="dock-row">
-        <button type="button" class="camera-reset-button" @click="resetCamera">
-          Reset camera
-        </button>
-      </div>
-      <div class="dock-row">
-        <span class="zoom-label">View:</span>
-        <div class="view-options" role="radiogroup" aria-label="View">
-          <label
-            class="view-option"
-            :class="{ 'is-active': viewMode === 'isometric' }"
-          >
-            <input
-              class="view-radio"
-              type="radio"
-              name="view-mode"
-              value="isometric"
-              :checked="viewMode === 'isometric'"
-              @change="setView('isometric')"
-            />
-            <span>Isometric</span>
-          </label>
-          <span class="view-separator">/</span>
-          <label
-            class="view-option"
-            :class="{ 'is-active': viewMode === 'topdown' }"
-          >
-            <input
-              class="view-radio"
-              type="radio"
-              name="view-mode"
-              value="topdown"
-              :checked="viewMode === 'topdown'"
-              @change="setView('topdown')"
-            />
-            <span>Top Down</span>
-          </label>
-        </div>
-      </div>
-      <div class="dock-row">
-        <label class="zoom-label" for="zoom-slider">Zoom:</label>
-        <input
-          id="zoom-slider"
-          class="zoom-slider"
-          type="range"
-          :min="zoomMin"
-          :max="zoomMax"
-          step="0.01"
-          :value="zoom"
-          aria-label="Zoom"
-          @input="onZoomSliderInput"
-        />
-      </div>
-    </div>
-
-    <div
-      v-if="!hasWonLevel"
-      class="mobile-dpad"
-      role="group"
-      aria-label="Move player"
-    >
-      <button
-        v-if="isLost && !hasWonLevel"
-        type="button"
-        class="mobile-dpad__button mobile-dpad__undo"
-        :disabled="!canUndoLastMove"
-        aria-label="Undo move"
-        @pointerdown.prevent="undoLastMove"
-      >
-        <svg class="mobile-dpad__icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 14L5 10m0 0 4-4m-4 4h11a4 4 0 1 1 0 8h-1" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="mobile-dpad__button mobile-dpad__up"
-        aria-label="Move up"
-        @pointerdown.prevent="moveByDirection('up')"
-      >
-        &#9650;
-      </button>
-      <button
-        type="button"
-        class="mobile-dpad__button mobile-dpad__left"
-        aria-label="Move left"
-        @pointerdown.prevent="moveByDirection('left')"
-      >
-        &#9664;
-      </button>
-      <span class="mobile-dpad__center" aria-hidden="true" />
-      <button
-        type="button"
-        class="mobile-dpad__button mobile-dpad__right"
-        aria-label="Move right"
-        @pointerdown.prevent="moveByDirection('right')"
-      >
-        &#9654;
-      </button>
-      <button
-        type="button"
-        class="mobile-dpad__button mobile-dpad__down"
-        aria-label="Move down"
-        @pointerdown.prevent="moveByDirection('down')"
-      >
-        &#9660;
-      </button>
-    </div>
+    <AppMobileDpad
+      :is-lost="isLost"
+      :has-won-level="hasWonLevel"
+      :can-undo-last-move="canUndoLastMove"
+      @undo="undoLastMove"
+      @move="moveByDirection"
+    />
 
     <a
       class="btn-github"
@@ -1256,32 +273,14 @@ onBeforeUnmount(() => {
       </svg>
     </a>
 
-    <Transition name="level-cleared">
-      <div v-if="showLevelClearedOverlay" class="level-cleared-overlay">
-        <section
-          class="level-cleared-card"
-          role="dialog"
-          aria-label="Level cleared"
-        >
-          <h2>Level #{{ levelNumber }} cleared</h2>
-          <p class="level-cleared-stat">
-            <span>Moves</span>
-            <strong>{{ steps }}</strong>
-          </p>
-          <p class="level-cleared-stat">
-            <span>Time</span>
-            <strong>{{ formattedElapsedTime }}</strong>
-          </p>
-          <button
-            type="button"
-            class="level-cleared-action"
-            @click="continueAfterWin"
-          >
-            {{ hasNextLevel ? "Next Level" : "Play Again" }}
-          </button>
-        </section>
-      </div>
-    </Transition>
+    <AppLevelClearedOverlay
+      :show="showLevelClearedOverlay"
+      :level-number="levelNumber"
+      :steps="steps"
+      :formatted-elapsed-time="formattedElapsedTime"
+      :has-next-level="hasNextLevel"
+      @continue="continueAfterWin"
+    />
   </main>
 </template>
 
@@ -1338,41 +337,6 @@ onBeforeUnmount(() => {
 .app.is-deadlocked {
   --bg-color-b: #22161d;
   --bg-color-b-stop: 13%;
-}
-
-.logo {
-  display: block;
-  height: 50px;
-  width: auto;
-  object-fit: contain;
-  margin-left: -8px;
-  margin-top: 5px;
-}
-
-.brand-mark {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.logo-version {
-  font-size: 12px;
-  line-height: 1;
-  color: var(--ui-color-muted);
-  margin-bottom: 9px;
-  opacity: 0.75;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .scene {
@@ -1581,26 +545,6 @@ onBeforeUnmount(() => {
   inset: -0.6px;
 }
 
-.sidebar {
-  --ui-color: #f4efe0;
-  --ui-color-muted: #d3cdbd;
-  --ui-color-hover: #fff8ea;
-  --ui-color-active: #fffdf5;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--ui-gap-m);
-  padding: 5px 15px;
-  font-family: var(--ui-font-family);
-  font-size: var(--ui-font-size);
-  line-height: var(--ui-line-height);
-  color: var(--ui-color);
-}
-
 .btn-github {
   position: absolute;
   top: 0;
@@ -1638,554 +582,9 @@ onBeforeUnmount(() => {
   }
 }
 
-.brand {
-  display: grid;
-  gap: var(--ui-gap-s);
-  min-width: 160px;
-}
-
-.controls {
-  display: grid;
-  gap: var(--ui-gap-s);
-  align-items: start;
-  justify-items: start;
-}
-
-.control-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.chip-divider {
-  color: var(--ui-color-muted);
-}
-
-.chip {
-  border: 0;
-  outline: 0;
-  background: none;
-  color: inherit;
-  padding: 0;
-  min-height: 1.4rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  box-sizing: border-box;
-  font-family: inherit;
-  font-size: var(--ui-font-size);
-  line-height: var(--ui-line-height);
-  font-weight: 400;
-  gap: 0.35rem;
-}
-
-.chip--button {
-  appearance: none;
-  cursor: pointer;
-  transition: color 140ms ease, transform 100ms ease;
-  color: var(--ui-color-muted);
-}
-
-.chip-button-label {
-  font-weight: 700;
-}
-
-.chip-shortcut {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-thickness: 1px;
-  text-decoration-color: currentColor;
-}
-
-.chip-button-suit {
-  text-decoration: none;
-}
-
-.chip--button:hover:not(:disabled) {
-  color: var(--ui-color-hover);
-  transform: translateX(1px);
-}
-
-.chip--button:hover:not(:disabled) .chip-button-label {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-thickness: 1px;
-  text-decoration-color: currentColor;
-}
-
-.chip--button:active:not(:disabled) {
-  color: var(--ui-color-active);
-  transform: translateY(1px) scale(0.99);
-}
-
-.chip--button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.chip strong {
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: 700;
-}
-
-.chip-value {
-  font-weight: 400;
-}
-
-.chip--timer .chip-value {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
-
-.chip--status-win {
-  color: #d3f2a2;
-}
-
-.chip--status-loss {
-  color: #ff3b30;
-}
-
-.hint {
-  margin: 0;
-  max-width: 250px;
-  color: var(--ui-color-muted);
-}
-
-.zoom-dock {
-  --ui-color: #f4efe0;
-  --ui-color-muted: #d3cdbd;
-  --ui-color-hover: #fff8ea;
-  --ui-color-active: #fffdf5;
-  --ui-track: rgba(244, 239, 224, 0.4);
-  --ui-track-hover: rgba(244, 239, 224, 0.58);
-  --ui-track-active: rgba(244, 239, 224, 0.74);
-  --ui-thumb-border: #dfd8c9;
-  --ui-thumb-border-hover: #ece4d4;
-  --ui-thumb-border-active: #f7efe0;
-  --ui-thumb: #f4efe0;
-  --ui-thumb-hover: #fff8ea;
-  --ui-thumb-active: #fffdf5;
-  position: absolute;
-  left: 15px;
-  bottom: 12px;
-  z-index: 20;
-  display: grid;
-  gap: var(--ui-gap-s);
-  color: var(--ui-color);
-  font-family: var(--ui-font-family);
-  font-size: var(--ui-font-size);
-  line-height: var(--ui-line-height);
-}
-
-.dock-row {
-  display: flex;
-  align-items: center;
-  gap: var(--ui-gap-s);
-}
-
-.zoom-label {
-  font-weight: 700;
-}
-
-.zoom-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 96px;
-  height: 14px;
-  margin: 0;
-  background: transparent;
-}
-
-.zoom-slider:focus {
-  outline: none;
-}
-
-.zoom-slider::-webkit-slider-runnable-track {
-  height: 2px;
-  border-radius: 999px;
-  background: var(--ui-track);
-}
-
-.zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-top: -4px;
-  border: 1px solid var(--ui-thumb-border);
-  background: var(--ui-thumb);
-}
-
-.zoom-slider:hover::-webkit-slider-runnable-track {
-  background: var(--ui-track-hover);
-}
-
-.zoom-slider:hover::-webkit-slider-thumb {
-  border-color: var(--ui-thumb-border-hover);
-  background: var(--ui-thumb-hover);
-}
-
-.zoom-slider:active::-webkit-slider-runnable-track {
-  background: var(--ui-track-active);
-}
-
-.zoom-slider:active::-webkit-slider-thumb {
-  border-color: var(--ui-thumb-border-active);
-  background: var(--ui-thumb-active);
-}
-
-.zoom-slider::-moz-range-track {
-  height: 2px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--ui-track);
-}
-
-.zoom-slider::-moz-range-progress {
-  height: 2px;
-  border-radius: 999px;
-  background: var(--ui-track-active);
-}
-
-.zoom-slider::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1px solid var(--ui-thumb-border);
-  background: var(--ui-thumb);
-}
-
-.zoom-slider:hover::-moz-range-track {
-  background: var(--ui-track-hover);
-}
-
-.zoom-slider:hover::-moz-range-thumb {
-  border-color: var(--ui-thumb-border-hover);
-  background: var(--ui-thumb-hover);
-}
-
-.view-options {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.view-option {
-  display: inline-flex;
-  align-items: center;
-  color: var(--ui-color-muted);
-  cursor: pointer;
-}
-
-.view-option:hover {
-  color: var(--ui-color-hover);
-}
-
-.view-option.is-active {
-  color: var(--ui-color-active);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-
-.view-radio {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.view-option:focus-within {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.view-separator {
-  margin: 0;
-  color: var(--ui-color-muted);
-}
-
-.camera-reset-button {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--ui-color-muted);
-  font: inherit;
-  line-height: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.camera-reset-button:hover {
-  color: var(--ui-color-hover);
-}
-
-.camera-reset-button:active {
-  color: var(--ui-color-active);
-}
-
-.mobile-dpad {
-  --dpad-cell: 48px;
-  --dpad-gap: 4px;
-  position: absolute;
-  right: calc(10px + env(safe-area-inset-right, 0px));
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  z-index: 24;
-  display: none;
-  grid-template-columns: repeat(3, var(--dpad-cell));
-  grid-template-rows: repeat(3, var(--dpad-cell));
-  gap: var(--dpad-gap);
-}
-
-.mobile-dpad__button {
-  --hit-top: 0px;
-  --hit-right: 0px;
-  --hit-bottom: 0px;
-  --hit-left: 0px;
-  position: relative;
-  border: 1px solid rgba(245, 239, 224, 0.42);
-  border-radius: 11px;
-  background: rgba(18, 26, 43, 0.75);
-  color: #f4efe0;
-  font: inherit;
-  font-size: 20px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.mobile-dpad__icon {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.35;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-
-.mobile-dpad__button::before {
-  content: "";
-  position: absolute;
-  top: calc(-1 * var(--hit-top));
-  right: calc(-1 * var(--hit-right));
-  bottom: calc(-1 * var(--hit-bottom));
-  left: calc(-1 * var(--hit-left));
-}
-
-.mobile-dpad__button:active {
-  background: rgba(26, 39, 62, 0.88);
-  transform: scale(0.97);
-}
-
-.mobile-dpad__button:disabled {
-  opacity: 0.35;
-  background: rgba(18, 26, 43, 0.52);
-  cursor: not-allowed;
-  transform: none;
-}
-
-.mobile-dpad__undo {
-  grid-column: 1;
-  grid-row: 1;
-  --hit-top: 12px;
-  --hit-right: 0px;
-  --hit-bottom: 4px;
-  --hit-left: 12px;
-}
-
-.mobile-dpad__up {
-  grid-column: 2;
-  grid-row: 1;
-  --hit-top: 12px;
-  --hit-right: 4px;
-  --hit-bottom: 0px;
-  --hit-left: 4px;
-}
-
-.mobile-dpad__left {
-  grid-column: 1;
-  grid-row: 2;
-  --hit-top: 4px;
-  --hit-right: 0px;
-  --hit-bottom: 4px;
-  --hit-left: 12px;
-}
-
-.mobile-dpad__center {
-  grid-column: 2;
-  grid-row: 2;
-  width: calc(var(--dpad-cell) - 20px);
-  height: calc(var(--dpad-cell) - 20px);
-  place-self: center;
-  border-radius: 999px;
-  border: 1px solid rgba(245, 239, 224, 0.2);
-  background: rgba(11, 16, 28, 0.45);
-  pointer-events: none;
-}
-
-.mobile-dpad__right {
-  grid-column: 3;
-  grid-row: 2;
-  --hit-top: 4px;
-  --hit-right: 12px;
-  --hit-bottom: 4px;
-  --hit-left: 0px;
-}
-
-.mobile-dpad__down {
-  grid-column: 2;
-  grid-row: 3;
-  --hit-top: 0px;
-  --hit-right: 4px;
-  --hit-bottom: 12px;
-  --hit-left: 4px;
-}
-
-.level-cleared-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  padding: 12px;
-  pointer-events: none;
-}
-
-.level-cleared-enter-active,
-.level-cleared-leave-active {
-  transition: opacity 240ms ease;
-}
-
-.level-cleared-enter-active .level-cleared-card,
-.level-cleared-leave-active .level-cleared-card {
-  transition: transform 260ms cubic-bezier(0.22, 0.7, 0.12, 1),
-    opacity 260ms ease;
-}
-
-.level-cleared-enter-from,
-.level-cleared-leave-to {
-  opacity: 0;
-}
-
-.level-cleared-enter-from .level-cleared-card,
-.level-cleared-leave-to .level-cleared-card {
-  transform: translateY(10px) scale(0.97);
-  opacity: 0;
-}
-
-.level-cleared-card {
-  pointer-events: auto;
-  box-sizing: border-box;
-  width: max-content;
-  padding: 16px;
-  border: 1px solid rgba(142, 177, 112, 0.68);
-  background: rgba(8, 26, 17, 0.92);
-  color: #f6e7b8;
-  font-family: var(--ui-font-family);
-  display: grid;
-  gap: 8px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
-}
-
-.level-cleared-card h2 {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-
-.level-cleared-stat {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-variant-numeric: tabular-nums;
-}
-
-.level-cleared-stat span {
-  color: rgba(246, 231, 184, 0.7);
-  font-size: 13px;
-}
-
-.level-cleared-stat strong {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.level-cleared-action {
-  width: 100%;
-  margin-top: 6px;
-  border: 1px solid #8eb170;
-  background: #3f6b41;
-  color: #f6e7b8;
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-}
-
-.level-cleared-action:hover {
-  background: #4a7b4c;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .scene {
     transition: none;
-  }
-
-  .level-cleared-enter-active,
-  .level-cleared-leave-active,
-  .level-cleared-enter-active .level-cleared-card,
-  .level-cleared-leave-active .level-cleared-card {
-    transition: none;
-  }
-}
-
-@media (pointer: coarse), (max-width: 640px) {
-  .mobile-dpad {
-    display: grid;
-  }
-}
-
-@media (max-width: 420px) {
-  .mobile-dpad {
-    --dpad-cell: 44px;
-    --dpad-gap: 3px;
-  }
-
-  .mobile-dpad__button {
-    font-size: 18px;
-  }
-}
-
-@media (max-width: 640px) {
-  .brand {
-    min-width: 0;
-  }
-
-  .sidebar {
-    top: 0;
-    padding: 5px 15px;
-  }
-
-  .zoom-dock {
-    left: 15px;
-    bottom: 12px;
-  }
-
-  .zoom-slider {
-    width: 96px;
   }
 }
 </style>
