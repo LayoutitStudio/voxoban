@@ -17,25 +17,25 @@ import {
   buildDeadBoxSquares,
   buildGoalReachabilityByGoal,
   isLostState,
-} from "./src/game/deadlocks";
+} from "./game/deadlocks";
 import {
   MOVE_DELTAS_BY_DIRECTION,
   clamp,
   fromKey,
   toKey,
-} from "./src/game/coords";
+} from "./game/coords";
 import {
   canSingleBoxReachAnyGoalFromState,
   tryMoveOnBoard,
-} from "./src/game/rules";
+} from "./game/rules";
 import type {
   CampaignLevel,
   Coord,
   Facing,
   MoveDirection,
   MoveSnapshot,
-} from "./src/game/types";
-import { campaignLevels, fallbackCampaignLevel } from "./src/levels/boxoban";
+} from "./game/types";
+import { campaignLevels, fallbackCampaignLevel } from "./levels/boxoban";
 
 type ViewMode = "isometric" | "topdown";
 type CubeFaceKey = "t" | "b" | "fr" | "fl" | "bl" | "br";

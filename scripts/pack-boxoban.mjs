@@ -2,8 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const INPUT_DIR = path.resolve("levels");
-const OUTPUT_FILE = path.resolve("src/levels/generated/packed-levels.ts");
+const INPUT_DIR = path.resolve("src/levels/source");
+const OUTPUT_FILE = path.resolve("src/levels/packed-levels.ts");
 
 const CELL_TO_CODE = {
   "#": 0,

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PACKED_FILE = path.resolve("src/levels/generated/packed-levels.ts");
+const PACKED_FILE = path.resolve("src/levels/packed-levels.ts");
 const PACKED_BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const PACKED_CELL_BY_CODE = ["#", " ", ".", "$", "@", "+", "*"];

@@ -37,8 +37,8 @@ dataset. The raw upstream mirror is intentionally ignored by Git because it is
 large; keep it locally at `data/boxoban-levels-master/` only when rebuilding or
 auditing the source data.
 
-Tracked source level files live in `levels/`. The app imports the generated
-packed bundle from `src/levels/generated/packed-levels.ts`.
+Tracked source level files live in `src/levels/source/`. The app imports the
+generated packed bundle from `src/levels/packed-levels.ts`.
 
 Rebuild the packed bundle after editing tracked level text files:
 

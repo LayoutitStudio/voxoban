@@ -1,7 +1,7 @@
 import {
   packedLevelFiles,
   type PackedLevelFile,
-} from "./generated/packed-levels";
+} from "./packed-levels";
 import {
   CARDINAL_DIRECTIONS,
   fromKey,

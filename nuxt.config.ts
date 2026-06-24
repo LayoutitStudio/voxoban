@@ -1,5 +1,6 @@
 export default defineNuxtConfig({
   ssr: true,
+  srcDir: "src",
   compatibilityDate: "2026-06-24",
   buildDir: process.env.NUXT_BUILD_DIR || ".nuxt",
   app: {

@@ -6,7 +6,7 @@ import {
   createBoxobanCampaign,
   parseLevel,
 } from "./boxoban";
-import { packedLevelFiles } from "./generated/packed-levels";
+import { packedLevelFiles } from "./packed-levels";
 import { decodePackedRows } from "./packed-codec";
 
 describe("packed Boxoban levels", () => {
