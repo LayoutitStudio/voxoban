@@ -1,7 +1,7 @@
 import {
   packedLevelFiles,
   type PackedLevelFile,
-} from "../../data/boxoban/packed-levels";
+} from "./generated/packed-levels";
 import {
   CARDINAL_DIRECTIONS,
   fromKey,

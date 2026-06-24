@@ -11,7 +11,7 @@ Voxoban bundles puzzle levels derived from the Boxoban dataset:
 - Status: Not an official Google product.
 
 The Apache 2.0 license text for the Boxoban dataset is included at
-`THIRD_PARTY_LICENSES/BOXOBAN_APACHE-2.0.txt`.
+`licenses/boxoban-apache-2.0.txt`.
 
 If you use the bundled level data in research or derived work, cite the
 Boxoban dataset:

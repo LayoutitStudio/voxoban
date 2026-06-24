@@ -2,8 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const INPUT_DIR = path.resolve("data/boxoban");
-const OUTPUT_FILE = path.resolve("data/boxoban/packed-levels.ts");
+const INPUT_DIR = path.resolve("levels/boxoban");
+const OUTPUT_FILE = path.resolve("src/levels/generated/packed-levels.ts");
 
 const CELL_TO_CODE = {
   "#": 0,
@@ -185,6 +185,7 @@ function buildPackedFile() {
     )} as const;\n\n` +
     `export const packedLevelCount = ${totalLevels};\n`;
 
+  fs.mkdirSync(path.dirname(OUTPUT_FILE), { recursive: true });
   fs.writeFileSync(OUTPUT_FILE, `${header}${body}`, "utf8");
 
   const rawBytes = packedEntries.reduce(

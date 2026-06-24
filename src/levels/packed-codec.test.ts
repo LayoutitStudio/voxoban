@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { packedLevelFiles } from "../../data/boxoban/packed-levels";
 import {
   SHIP_BLOCKED_SOURCE_INDICES,
   campaignLevels,
   createBoxobanCampaign,
   parseLevel,
 } from "./boxoban";
+import { packedLevelFiles } from "./generated/packed-levels";
 import { decodePackedRows } from "./packed-codec";
 
 describe("packed Boxoban levels", () => {
