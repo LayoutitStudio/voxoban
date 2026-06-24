@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const INPUT_DIR = path.resolve("levels/boxoban");
+const INPUT_DIR = path.resolve("levels");
 const OUTPUT_FILE = path.resolve("src/levels/generated/packed-levels.ts");
 
 const CELL_TO_CODE = {
