@@ -46,4 +46,4 @@ Rebuild the packed bundle after editing tracked level text files:
 npm run pack:levels
 ```
 
-See [NOTICE.md](NOTICE.md) for Boxoban attribution and citation details.
+See [LICENSE](LICENSE) for Boxoban attribution and citation details.
